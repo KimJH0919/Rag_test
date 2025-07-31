@@ -141,7 +141,7 @@ def get_vectorstore(text_chunks):
     return vectordb
 
 def get_conversation_chain(vetorestore):
-    llm =  ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature = 0)
+    llm =  ChatGoogleGenerativeAI(model="gemini-1.0", temperature = 0)
     conversation_chain = ConversationalRetrievalChain.from_llm(
             llm=llm, 
             chain_type="stuff", 
