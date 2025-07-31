@@ -1,4 +1,5 @@
 import streamlit as st
+import tiktoken
 from loguru import logger
 
 from langchain.chains import ConversationalRetrievalChain
@@ -13,25 +14,18 @@ import os
 
 
 def main():
-    st.set_page_config(
-        page_title="Streamlit_Rag",
-        page_icon=":books:"
-    )
-
+    st.set_page_config(page_title="Streamlit_Rag", page_icon=":books:")
     st.title("_Private Data :red[Q/A Chat]_ :books:")
 
-    # 세션 상태 초기화
-    if "conversation" not in st.session_state:
-        st.session_state.conversation = None
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = None
-    if "processComplete" not in st.session_state:
-        st.session_state.processComplete = None
+    # 세션 초기화
+    for key in ("conversation", "chat_history", "processComplete"):
+        if key not in st.session_state:
+            st.session_state[key] = None
 
-    # 사이드바: 파일 업로드 + API 키
+    # 사이드바: 업로드 + API 키 입력
     with st.sidebar:
         uploaded_files = st.file_uploader(
-            "Upload your file", type=['pdf', 'docx'], accept_multiple_files=True
+            "Upload your file", type=['pdf', 'docx', 'pptx'], accept_multiple_files=True
         )
         google_api_key = st.text_input(
             "Google API Key", key="chatbot_api_key", type="password"
@@ -39,31 +33,28 @@ def main():
         os.environ["GOOGLE_API_KEY"] = google_api_key
         process = st.button("Process")
 
-    # 처리 버튼 누르면 인덱스 생성
+    # 처리 버튼
     if process:
         if not google_api_key:
-            st.info("Please add your OpenAI API key to continue.")
+            st.info("Please add your Google API key to continue.")
             st.stop()
-        documents = get_text(uploaded_files)
-        text_chunks = get_text_chunks(documents)
-        vectorstore = get_vectorstore(text_chunks)
-
+        docs = get_text(uploaded_files)
+        chunks = get_text_chunks(docs)
+        vectorstore = get_vectorstore(chunks)
         st.session_state.conversation = get_conversation_chain(vectorstore)
         st.session_state.processComplete = True
 
-    # 채팅 내역 초기 메시지
+    # 채팅 초기 메시지
     if 'messages' not in st.session_state:
-        st.session_state['messages'] = [{
+        st.session_state.messages = [{
             "role": "assistant",
             "content": "안녕하세요! 주어진 문서에 대해 궁금하신 것이 있으면 언제든 물어봐주세요!"
         }]
 
-    # 대화 내역 렌더링
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # StreamlitChatMessageHistory
+    # 대화 렌더링
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
     StreamlitChatMessageHistory(key="chat_messages")
 
     # 사용자 입력 처리
@@ -71,26 +62,24 @@ def main():
         st.session_state.messages.append({"role": "user", "content": query})
         with st.chat_message("user"):
             st.markdown(query)
-
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 result = st.session_state.conversation({"question": query})
                 st.session_state.chat_history = result['chat_history']
                 response = result['answer']
-                source_docs = result['source_documents']
+                sources = result['source_documents']
 
                 st.markdown(response)
-                with st.expander("참고 문서 확인"):
-                    for doc in source_docs[:3]:
+                with st.expander("참고 문서"):
+                    for doc in sources[:3]:
                         st.markdown(doc.metadata['source'], help=doc.page_content)
 
-        # 어시스턴트 응답 저장
         st.session_state.messages.append({"role": "assistant", "content": response})
 
 
 def tiktoken_len(text: str) -> int:
-    """tiktoken 대신 Rust 컴파일 없이 fallback: 문자 수로 토큰 길이 대체"""
-    return len(text)
+    tokenizer = tiktoken.get_encoding("cl100k_base")
+    return len(tokenizer.encode(text))
 
 
 def get_text(uploaded_files):
